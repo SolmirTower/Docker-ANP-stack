@@ -1,0 +1,53 @@
+# ── Стадия 1: сборка ──────────────────────────────────────
+FROM debian:bookworm-slim AS builder
+
+# Устанавливаем всё что нужно для компиляции
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpcre3-dev \
+    zlib1g-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем исходники
+COPY . /src
+WORKDIR /src
+
+# Конфигурируем и собираем
+RUN ./auto/configure \
+    --prefix=/etc/nginx \
+    --sbin-path=/usr/sbin/nginx \
+    --conf-path=/etc/nginx/nginx.conf \
+    --error-log-path=/var/log/nginx/error.log \
+    --http-log-path=/var/log/nginx/access.log \
+    --with-http_ssl_module \
+    --with-http_v2_module \
+    && make \
+    && make install
+
+# ── Стадия 2: финальный образ ─────────────────────────────
+FROM debian:bookworm-slim
+
+# Только рантайм-зависимости (не весь компилятор)
+RUN apt-get update && apt-get install -y \
+    libpcre3 \
+    zlib1g \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/* 
+
+# Берём только собранный бинарник и конфиги из стадии 1
+COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
+COPY --from=builder /etc/nginx /etc/nginx
+COPY ./html/ /etc/nginx/html
+COPY ./nginx.conf /etc/nginx/nginx.conf
+COPY ./ssl /etc/nginx/ssl
+
+
+# Логи в stdout/stderr — стандарт для Docker
+RUN mkdir -p /var/log/nginx \
+    && ln -sf /dev/stdout /var/log/nginx/access.log \
+    && ln -sf /dev/stderr /var/log/nginx/error.log
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]  

@@ -1,0 +1,99 @@
+# Многоступенчатая сборка PostgreSQL из исходного кода
+# Стадия 1: сборка
+FROM debian:bookworm-slim AS builder
+
+# Устанавливаем зависимости для сборки
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        bison \
+        flex \
+        libreadline-dev \
+        zlib1g-dev \
+        libssl-dev \
+        libxml2-dev \
+        libxslt1-dev \
+        libicu-dev \
+        libldap2-dev \
+        libpam0g-dev \
+        libperl-dev \
+        python3-dev \
+        tcl-dev \
+        uuid-dev \
+        gettext \
+        pkg-config \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Каталог для исходников
+WORKDIR /usr/src/postgresql
+
+# Копируем исходный код PostgreSQL внутрь образа
+# (предполагается, что Dockerfile лежит рядом с COPYRIGHT, configure, src/ и т.д.)
+COPY . /usr/src/postgresql/
+
+# Конфигурируем, собираем и устанавливаем PostgreSQL в /usr/local/pgsql
+RUN ./configure \
+        --prefix=/usr/local/pgsql \
+        --with-openssl \
+        --with-libxml \
+        --with-libxslt \
+        --with-icu \
+        --with-uuid=e2fs \
+        --with-system-tzdata=/usr/share/zoneinfo \
+    && make -j"$(nproc)" world-bin \
+    && make install-world-bin \
+    && make -C contrib install
+
+
+# Стадия 2: финальный runtime-образ
+FROM debian:bookworm-slim
+
+# Минимальный набор runtime-библиотек, нужных собранному PostgreSQL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libreadline8 \
+        zlib1g \
+        libssl3 \
+        libxml2 \
+        libxslt1.1 \
+        libicu72 \
+        libldap-2.5-0 \
+        libpam0g \
+        libperl5.36 \
+        libpython3.11 \
+        libtcl8.6 \
+        libuuid1 \
+        locales \
+        tzdata \
+        ca-certificates \
+        gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+
+ENV LANG=en_US.utf8
+
+# Копируем собранный PostgreSQL из стадии сборки
+COPY --from=builder /usr/local/pgsql /usr/local/pgsql
+
+# Создаём пользователя postgres и каталоги для данных
+RUN groupadd -r postgres --gid=999 \
+    && useradd -r -g postgres --uid=999 --home-dir=/var/lib/postgresql --shell=/bin/bash postgres \
+    && mkdir -p /var/lib/postgresql/data /var/run/postgresql \
+    && chown -R postgres:postgres /var/lib/postgresql /var/run/postgresql \
+    && chmod 700 /var/lib/postgresql/data
+
+# PATH к бинарникам PostgreSQL
+ENV PATH=/usr/local/pgsql/bin:$PATH
+ENV PGDATA=/var/lib/postgresql/data
+
+VOLUME ["/var/lib/postgresql/data"]
+
+EXPOSE 5432
+
+# Скрипт запуска: инициализирует кластер при первом старте и запускает postgres
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+USER postgres
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["postgres"]

@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────
+# Стадия 1: сборка — компилируем в один PHP файл
+# ─────────────────────────────────────────
+FROM php:8.2-cli-bookworm AS builder
+
+WORKDIR /usr/src/adminer
+
+# git нужен только чтобы инициализировать submodules
+# (externals/JsShrink, externals/PhpShrink, externals/jush)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем всё — compile.php читает исходники относительно себя
+COPY . .
+
+# Инициализируем submodules если они не были закоммичены
+# Если externals/ уже содержит файлы — эта команда ничего не сломает
+RUN git init \
+    && git submodule update --init --recursive 2>/dev/null || true
+
+# Запускаем компиляцию — на выходе adminer-X.X.X.php в текущей директории
+RUN php compile.php
+
+# ─────────────────────────────────────────
+# Стадия 2: runtime — минимальный образ с одним файлом
+# ─────────────────────────────────────────
+FROM php:8.2-cli-bookworm
+
+# Расширения PHP которые Adminer использует для подключения к БД.
+# Все они идут через docker-php-ext-install — это утилита
+# из официального php-образа, компилирует расширения из исходников.
+#
+# pdo_mysql  — MySQL / MariaDB
+# pdo_pgsql  — PostgreSQL (нужен libpq-dev для компиляции)
+# pdo_sqlite — SQLite (нужен libsqlite3-dev)
+# mysqli     — альтернативный драйвер для MySQL
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpq-dev \
+        libsqlite3-dev \
+    && docker-php-ext-install \
+        pdo_mysql \
+        pdo_pgsql \
+        pdo_sqlite \
+        mysqli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Непривилегированный пользователь — PHP встроенный сервер
+# не требует root, запускаем от www-data (уже есть в образе)
+WORKDIR /var/www/adminer
+
+# Берём только скомпилированный файл из builder-стадии
+# Имя файла содержит версию: adminer-4.x.x.php
+# Переименовываем в adminer.php — предсказуемое имя для CMD
+COPY --from=builder /usr/src/adminer/adminer.php ./adminer.php
+
+# Права для www-data
+RUN chown www-data:www-data /var/www/adminer/adminer.php
+ 
+USER www-data
+
+EXPOSE 8080
+
+# php --server — встроенный веб-сервер, достаточен для Adminer
+# 0.0.0.0 — слушаем на всех интерфейсах (не только localhost)
+# без этого контейнер будет недоступен снаружи
+CMD ["php", "--server", "0.0.0.0:8080", "--docroot", "/var/www/adminer", "/var/www/adminer/adminer.php"]

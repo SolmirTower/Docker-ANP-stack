@@ -1,0 +1,11 @@
+.env
+nginx/ssl/
+nginx/*
+postgres/*
+adminer/*
+!nginx/dockerfile
+!nginx/nginx.conf
+!nginx/html/
+!postgres/dockerfile
+!postgres/docker-entrypoint.sh
+!adminer/dockerfile

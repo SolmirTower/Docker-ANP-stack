@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: my-postgres:latest
+
+    networks:
+      - backend
+
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 20s
+      retries: 5
+
+    restart: unless-stopped
+
+  nginx:
+    image: my-nginx:latest
+
+    healthcheck:
+      test: ["CMD-SHELL", "pidof nginx || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    ports: 
+      - "80:80"
+      - "443:443"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - frontend
+
+    restart: unless-stopped
+  
+  adminer:
+    image: adminer:latest
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - backend
+      - frontend
+
+    restart: unless-stopped
+
+
+  
+networks:
+  frontend:
+    driver: bridge
+
+  backend:
+    driver: bridge
+
+volumes:
+  pg_data:
