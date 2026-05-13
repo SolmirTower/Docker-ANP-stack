@@ -1,4 +1,8 @@
-# ANP Stack (Adminer + Nginx + PostgreSQL)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Nginx](https://img.shields.io/badge/Nginx-009639?logo=nginx&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+
+ ANP Stack (Adminer + Nginx + PostgreSQL)
 
 Production-ready стек из трёх сервисов, собранных из исходного кода и оркестрированных через Docker Compose.
 
